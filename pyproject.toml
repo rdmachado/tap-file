@@ -22,6 +22,7 @@ license = "Apache-2.0"
 license-files = [ "LICENSE" ]
 requires-python = ">=3.9"
 dependencies = [
+    "pandas>=2.3.0",
     "singer-sdk~=0.46.4",
     "smart-open[azure]>=7.1.0",
 ]
