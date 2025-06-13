@@ -102,6 +102,7 @@ class CSVStream(Stream):
         stream if partitioning is required for the stream. Most implementations do not
         require partitioning and should ignore the `context` argument."""
 
-        yield dict(zip(self.header, self.file.readline()))
+        while row := self.file.readline():
+            yield dict(zip(self.header, row))
 
 
