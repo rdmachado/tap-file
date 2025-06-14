@@ -24,17 +24,39 @@ class File:
         self.transport_params = transport_params
         self.fd = None
         self.encoding = encoding
-        
+
+    def read(self, n_rows: int = 1000) -> list[str]:
+        if not self.fd:
+            self._open_file()
+
+        rows = []
+        for i in range(n_rows):
+            l = self.fd.readline()
+            if not l:
+                break
+            rows.append(self.fd.readline())
+
+        return rows
+
     def peek(self, n_rows: int = 1000) -> list[str]:
         if not self.fd:
             self._open_file()
 
         p_cursor = self.fd.tell()
-        rows = []
-        for i in range(n_rows):
-            rows.append(self.fd.readline())
+        
+        rows = self.read(n_rows)
+        
         self.fd.seek(p_cursor)
+        
         return rows
+    
+    def skip(self, n_rows: int = 1) -> None:
+        if not self.fd:
+            self._open_file()
+
+        for i in range(n_rows):
+            self.fd.readline()
+
 
     def _open_file(self):
         self.fd = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
@@ -90,6 +112,7 @@ class CSVStream(Stream):
 
             # cache schema
             self._schema = th.PropertiesList(*properties).to_dict()
+            self._dtypes = df.dtypes
 
         return self._schema
 
@@ -103,8 +126,9 @@ class CSVStream(Stream):
         stream if partitioning is required for the stream. Most implementations do not
         require partitioning and should ignore the `context` argument."""
         
-        reader = csv.DictReader(self.file.fd, dialect=self._dialect, fieldnames=self._header)
-        next(reader) # skip header
-        for row in reader:
-            yield row
-
+        self.file.skip() # skip header
+        while rows := self.file.read(n_rows=10000):
+            df = pd.read_csv(StringIO(''.join(rows)), dialect=self._dialect, names=self._header, dtype=self._dtypes.to_dict())
+            json_lines = df.to_dict(orient='records')
+            for line in json_lines:
+                yield line
