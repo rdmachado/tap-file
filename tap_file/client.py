@@ -12,6 +12,7 @@ from singer_sdk import typing as th
 from smart_open import open
 import pandas as pd
 from io import StringIO
+import csv
 
 if t.TYPE_CHECKING:
     from singer_sdk.helpers.types import Context
@@ -25,17 +26,15 @@ class File:
         self.encoding = encoding
         
     def peek(self, n_rows: int = 1000) -> list[str]:
-        rows = []
-        for i in range(n_rows):
-            rows.append(self.readline())
-        self.fd.seek(0)
-        return rows
-
-    def readline(self):
         if not self.fd:
             self._open_file()
-    
-        return self.fd.readline()
+
+        p_cursor = self.fd.tell()
+        rows = []
+        for i in range(n_rows):
+            rows.append(self.fd.readline())
+        self.fd.seek(p_cursor)
+        return rows
 
     def _open_file(self):
         self.fd = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
@@ -69,9 +68,11 @@ class CSVStream(Stream):
 
             properties: list[th.Property] = []
 
-            rows = self.file.peek()
-            df = pd.read_csv(StringIO(''.join(rows)))
-            schema = pd.io.json.build_table_schema(df, index=False)
+            str_rows = ''.join(self.file.peek())
+            self._dialect = csv.Sniffer().sniff(str_rows)
+
+            df = pd.read_csv(StringIO(str_rows), dialect=self._dialect)
+            table_schema = pd.io.json.build_table_schema(df, index=False)
             type_translation = {
                 'integer': th.IntegerType(),
                 'string': th.StringType(),
@@ -81,11 +82,11 @@ class CSVStream(Stream):
                 'duration': th.DurationType(),
             }
             
-            for field in schema['fields']:
+            for field in table_schema['fields']:
                 properties.append(th.Property(field['name'], type_translation[field['type']]))
 
             # cache header
-            self.header = [f['name'] for f in schema['fields']]
+            self._header = [f['name'] for f in table_schema['fields']]
 
             # cache schema
             self._schema = th.PropertiesList(*properties).to_dict()
@@ -101,8 +102,9 @@ class CSVStream(Stream):
         The optional `context` argument is used to identify a specific slice of the
         stream if partitioning is required for the stream. Most implementations do not
         require partitioning and should ignore the `context` argument."""
-
-        while row := self.file.readline():
-            yield dict(zip(self.header, row))
-
+        
+        reader = csv.DictReader(self.file.fd, dialect=self._dialect, fieldnames=self._header)
+        next(reader) # skip header
+        for row in reader:
+            yield row
 
