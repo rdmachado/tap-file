@@ -34,7 +34,7 @@ class File:
             l = self.fd.readline()
             if not l:
                 break
-            rows.append(self.fd.readline())
+            rows.append(l)
 
         return rows
 
