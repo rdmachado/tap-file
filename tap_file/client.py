@@ -13,17 +13,26 @@ from smart_open import open
 import pandas as pd
 from io import StringIO
 import csv
+import uuid
+import os
 
 if t.TYPE_CHECKING:
     from singer_sdk.helpers.types import Context
 
 class File:
 
-    def __init__(self, file_path: str, encoding: str = 'utf8', transport_params = None) -> None:
+    def __init__(self, file_path: str, encoding: str = 'utf8', transport_params = None, offline = False) -> None:
         self.file_path = file_path
         self.transport_params = transport_params
         self.fd = None
-        self.encoding = encoding
+        self.encoding = "cp1252" #encoding
+        self.offline = offline
+        self.temp_files_path = None
+
+    def __del__(self):
+        self.fd.close()
+        if self.temp_files_path and os.path.exists(self.temp_files_path):
+            os.remove(self.temp_files_path)
 
     def read(self, n_rows: int = 1000) -> list[str]:
         if not self.fd:
@@ -59,7 +68,17 @@ class File:
 
 
     def _open_file(self):
-        self.fd = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
+        file_path = self.file_path
+
+        if self.offline:
+            self.temp_files_path = f'./{str(uuid.uuid4())}'
+            file_path = self.temp_files_path
+            with open(self.file_path, encoding=self.encoding, transport_params=self.transport_params) as src:
+                with open(self.temp_files_path, mode='w', encoding=self.encoding) as out:
+                    out.write(src.read())
+                    self.fd = out
+        
+        self.fd = open(file_path, encoding=self.encoding, transport_params=self.transport_params)
 
 
 class CSVStream(Stream):
@@ -71,7 +90,7 @@ class CSVStream(Stream):
         self.transport_params = self._build_transport_params()
         self.header = None
         self._schema = dict()
-        self.file = File(self.file_config['url'], transport_params=self.transport_params)
+        self.file = File(self.file_config['url'], transport_params=self.transport_params, offline=self.file_config['offline'])
 
         super().__init__(*args, **kwargs)
     
@@ -80,7 +99,8 @@ class CSVStream(Stream):
         match self.provider_config['name']:
             case 'azureblobstorage':
                 t_params['client'] = BlobServiceClient.from_connection_string(self.provider_config['azureblobstorage_connection_string'])
-        
+            case 'https':
+                pass
         return t_params
                 
     @property
@@ -93,7 +113,11 @@ class CSVStream(Stream):
             str_rows = ''.join(self.file.peek())
             self._dialect = csv.Sniffer().sniff(str_rows)
 
-            df = pd.read_csv(StringIO(str_rows), dialect=self._dialect)
+            dtype = 'str'
+            if self.file_config['infer_data_types']:
+                dtype = None
+
+            df = pd.read_csv(StringIO(str_rows), dialect=self._dialect, dtype=dtype)
             table_schema = pd.io.json.build_table_schema(df, index=False)
             type_translation = {
                 'integer': th.IntegerType(),
