@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from os import PathLike
 import typing as t
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, ContainerClient
 from singer_sdk import Tap
 from singer_sdk.singerlib.schema import Schema
 from singer_sdk.streams import Stream
@@ -12,9 +12,8 @@ from singer_sdk import typing as th
 from smart_open import open
 import pandas as pd
 from io import StringIO
-import csv
-import uuid
-import os
+import csv, uuid, os, re
+from urllib.parse import urlparse
 
 if t.TYPE_CHECKING:
     from singer_sdk.helpers.types import Context
@@ -82,7 +81,7 @@ class File:
 
 
 class CSVStream(Stream):
-    """Stream class for File streams."""
+    """Stream class for CSV file streams."""
 
     def __init__(self, *args, **kwargs) -> None:
         self.file_config = kwargs.pop("file_config")
@@ -90,7 +89,7 @@ class CSVStream(Stream):
         self.transport_params = self._build_transport_params()
         self.header = None
         self._schema = dict()
-        self.file = File(self.file_config['url'], transport_params=self.transport_params, offline=self.file_config['offline'])
+        self.files = self._find_matching_files()
 
         super().__init__(*args, **kwargs)
     
@@ -103,6 +102,24 @@ class CSVStream(Stream):
                 pass
         return t_params
                 
+    def _find_matching_files(self):
+        if not self.file_config['regex']:
+            return [File(self.file_config['url'], transport_params=self.transport_params, offline=self.file_config['offline'])]
+        else:
+            files = []
+            pr = urlparse(self.file_config['url'])
+            exp = re.compile(self.file_config['regex'])
+            match self.provider_config['name']:
+                case 'azureblobstorage':
+                    cc = ContainerClient.from_connection_string(self.provider_config['azureblobstorage_connection_string'], pr.netloc)
+                    matching_filenames = [f for f in cc.list_blob_names(name_starts_with=pr.path) if exp.fullmatch(f)]
+                    for f in matching_filenames:
+                        files.append(File(os.path.join(self.file_config['url'], f), transport_params=self.transport_params, offline=self.file_config['offline']))
+                case 'https':
+                    raise NotImplementedError()
+            return files
+
+
     @property
     def schema(self):
 
@@ -110,7 +127,7 @@ class CSVStream(Stream):
 
             properties: list[th.Property] = []
 
-            str_rows = ''.join(self.file.peek())
+            str_rows = ''.join(self.files[0].peek())
             self._dialect = csv.Sniffer().sniff(str_rows)
 
             dtype = 'str'
@@ -150,9 +167,10 @@ class CSVStream(Stream):
         stream if partitioning is required for the stream. Most implementations do not
         require partitioning and should ignore the `context` argument."""
         
-        self.file.skip() # skip header
-        while rows := self.file.read(n_rows=10000):
-            df = pd.read_csv(StringIO(''.join(rows)), dialect=self._dialect, names=self._header, dtype=self._dtypes.to_dict())
-            json_lines = df.to_dict(orient='records')
-            for line in json_lines:
-                yield line
+        for file in self.files:
+            file.skip() # skip header
+            while rows := file.read(n_rows=10000):
+                df = pd.read_csv(StringIO(''.join(rows)), dialect=self._dialect, names=self._header, dtype=self._dtypes.to_dict())
+                json_lines = df.to_dict(orient='records')
+                for line in json_lines:
+                    yield line
