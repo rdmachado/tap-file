@@ -34,7 +34,19 @@ class TapFile(Tap):
                             th.Property("format",
                                         th.StringType(allowed_values=["csv", "parquet"],
                                                       examples=["csv", "parquet"]
-                                        )
+                                        ),
+                                        required=True,
+                                        title="File format"
+                            ),
+                            th.Property("infer_data_types",
+                                        th.BooleanType(),
+                                        title="Infer data type",
+                                        description="Whether to try to infer field types or treat all fields as string."
+                            ),
+                            th.Property("offline",
+                                        th.BooleanType(),
+                                        title="Offline mode",
+                                        description="Download entire file before processing the data. This can be useful to prevent timeout issues with the source when there is enough disk space."
                             )
                         )
                     )
