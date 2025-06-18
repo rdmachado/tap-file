@@ -34,7 +34,8 @@ class File:
         self.temp_files_path = None
 
     def __del__(self):
-        self.fd.close()
+        if self.fd:
+            self.fd.close()
         if self.temp_files_path and os.path.exists(self.temp_files_path):
             os.remove(self.temp_files_path)
 
@@ -73,7 +74,9 @@ class File:
     def _open_file(self):
         if self.offline:
             self._download_file()
-            self.fd = self.fd = open(self.temp_file_path, encoding=self.encoding)
+            self.fd = open(self.temp_file_path, encoding=self.encoding)
+        elif self.file_obj:
+            self.fd = self.file_obj
         else:
             self.fd = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
 
