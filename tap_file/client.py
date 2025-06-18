@@ -26,9 +26,11 @@ class File:
         
         self.file_path = file_path
         self.transport_params = transport_params
-        self.fd = file_obj
+        self.file_obj = file_obj
         self.encoding = encoding
         self.offline = offline
+
+        self.fd = None
         self.temp_files_path = None
 
     def __del__(self):
@@ -68,19 +70,26 @@ class File:
         for i in range(n_rows):
             self.fd.readline()
 
-
     def _open_file(self):
-        file_path = self.file_path
-
         if self.offline:
-            self.temp_files_path = f'./{str(uuid.uuid4())}'
-            file_path = self.temp_files_path
-            with open(self.file_path, encoding=self.encoding, transport_params=self.transport_params) as src:
-                with open(self.temp_files_path, mode='w', encoding=self.encoding) as out:
-                    out.write(src.read())
-                    self.fd = out
+            self._download_file()
+            self.fd = self.fd = open(self.temp_file_path, encoding=self.encoding)
+        else:
+            self.fd = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
+
+    def _download_file(self):
+        self.temp_file_path = f'./{str(uuid.uuid4())}'
+
+        if self.file_obj:
+            src = self.file_obj
+        else:
+            src = open(self.file_path, encoding=self.encoding, transport_params=self.transport_params)
+
+        with open(self.temp_file_path, mode='w', encoding=self.encoding) as out:
+            out.write(src.read())
         
-        self.fd = open(file_path, encoding=self.encoding, transport_params=self.transport_params)
+        src.close()
+
 
 
 class CSVStream(Stream):
