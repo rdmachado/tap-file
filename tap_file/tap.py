@@ -38,15 +38,57 @@ class TapFile(Tap):
                                         required=True,
                                         title="File format"
                             ),
+                            th.Property("encoding",
+                                        th.StringType(),
+                                        default="utf8",
+                                        title="Text encoding",
+                                        description="Specify file encoding, if not specified defaults to utf-8"
+                            ),
                             th.Property("infer_data_types",
                                         th.BooleanType(),
+                                        default=False,
                                         title="Infer data type",
                                         description="Whether to try to infer field types or treat all fields as string."
                             ),
                             th.Property("offline",
                                         th.BooleanType(),
+                                        default=False,
                                         title="Offline mode",
                                         description="Download entire file before processing the data. This can be useful to prevent timeout issues with the source when there is enough disk space."
+                            ),
+                            th.Property("regex",
+                                        th.StringType(),
+                                        default="",
+                                        title="Regex pattern",
+                                        description="When specified will treat the url as a directory and extract files that match the file name pattern."
+                            ),
+                            th.Property("format_options",
+                                        th.ObjectType(
+                                            th.Property("csv_delimiter",
+                                                        th.StringType(),
+                                                        default="",
+                                                        title="CSV Delimiter",
+                                                        Description="Will be autodetected if not specified."
+                                            ),
+                                            th.Property("csv_escapechar",
+                                                        th.StringType(),
+                                                        default="",
+                                                        title="CSV Escape Character",
+                                                        Description="Will be autodetected if not specified."
+                                            ),
+                                            th.Property("csv_lineterminator",
+                                                        th.StringType(),
+                                                        default="",
+                                                        title="CSV Line Terminator",
+                                                        Description="Will be autodetected if not specified."
+                                            ),
+                                            th.Property("csv_quotechar",
+                                                        th.StringType(),
+                                                        default="",
+                                                        title="CSV Quote Character",
+                                                        Description="Will be autodetected if not specified."
+                                            )
+                                        )
                             )
                         )
                     )
@@ -61,6 +103,7 @@ class TapFile(Tap):
                         ),
                         th.Property("azureblobstorage_connection_string",
                                     th.StringType(nullable=False),
+                                    default="",
                                     title="Azure Blob Storage connection string",
                                     description="The connection string to reach and authenticate with the Azure Blob Storage service.")
                     )
