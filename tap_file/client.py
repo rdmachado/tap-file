@@ -11,8 +11,8 @@ from singer_sdk.streams import Stream
 from singer_sdk import typing as th 
 from smart_open import open
 import pandas as pd
-from io import StringIO
-import csv, uuid, os, re
+from io import StringIO, TextIOWrapper
+import csv, uuid, os, re, zipfile
 from urllib.parse import urlparse
 
 if t.TYPE_CHECKING:
@@ -20,11 +20,14 @@ if t.TYPE_CHECKING:
 
 class File:
 
-    def __init__(self, file_path: str, encoding: str = 'utf8', transport_params = None, offline = False) -> None:
+    def __init__(self, file_path: str = None, file_obj = None, encoding: str = 'utf8', transport_params = None, offline = False) -> None:
+        if not file_path and not file_obj:
+            raise Exception("Either a complete file path or a file like object must be provided as argument.")
+        
         self.file_path = file_path
         self.transport_params = transport_params
-        self.fd = None
-        self.encoding = "cp1252" #encoding
+        self.fd = file_obj
+        self.encoding = encoding
         self.offline = offline
         self.temp_files_path = None
 
@@ -103,20 +106,31 @@ class CSVStream(Stream):
         return t_params
                 
     def _find_matching_files(self):
+        
         if not self.file_config['regex']:
-            return [File(self.file_config['url'], transport_params=self.transport_params, offline=self.file_config['offline'])]
+            return [File(self.file_config['url'], encoding=self.file_config['encoding'], transport_params=self.transport_params, offline=self.file_config['offline'])]
         else:
-            files = []
-            pr = urlparse(self.file_config['url'])
-            exp = re.compile(self.file_config['regex'])
-            match self.provider_config['name']:
-                case 'azureblobstorage':
-                    cc = ContainerClient.from_connection_string(self.provider_config['azureblobstorage_connection_string'], pr.netloc)
-                    matching_filenames = [f for f in cc.list_blob_names(name_starts_with=pr.path) if exp.fullmatch(f)]
-                    for f in matching_filenames:
-                        files.append(File(os.path.join(self.file_config['url'], f), transport_params=self.transport_params, offline=self.file_config['offline']))
-                case 'https':
-                    raise NotImplementedError()
+            # regex was provided, assume url points to either a directory or a zip archive
+            if os.path.splitext(self.file_config['url'])[1].lower() == '.zip':
+                self._source_fd = open(self.file_config['url'], 'rb')
+                self._zip_fd = zipfile.ZipFile(self._source_fd)
+
+                files = []
+                for fi in self._zip_fd.infolist():
+                    files.append(File(file_obj=TextIOWrapper(self._zip_fd.open(fi), encoding=self.file_config['encoding']), offline=self.file_config['offline']))
+            else:
+                files = []
+                pr = urlparse(self.file_config['url'])
+                exp = re.compile(self.file_config['regex'])
+                match self.provider_config['name']:
+                    case 'azureblobstorage':
+                        cc = ContainerClient.from_connection_string(self.provider_config['azureblobstorage_connection_string'], pr.netloc)
+                        matching_filenames = [f for f in cc.list_blob_names(name_starts_with=pr.path) if exp.fullmatch(f)]
+                        for f in matching_filenames:
+                            files.append(File(os.path.join(self.file_config['url'], f), encoding=self.file_config['encoding'], transport_params=self.transport_params, offline=self.file_config['offline']))
+                    case 'https':
+                        raise NotImplementedError()
+                
             return files
 
 
@@ -130,9 +144,22 @@ class CSVStream(Stream):
             str_rows = ''.join(self.files[0].peek())
             self._dialect = csv.Sniffer().sniff(str_rows)
 
+            # override with specified format settings
+            for k,v in self.file_config.get('format_options', {}).items():    
+                if v:
+                    match k:
+                        case "csv_delimiter":
+                            self._dialect.delimiter = v
+                        case "csv_escapechar":
+                            self._dialect.escapechar = v
+                        case "csv_lineterminator":
+                            self._dialect.lineterminator = v
+                        case "csv_quotechar":
+                            self._dialect.quotechar = v
+
             dtype = 'str'
             if self.file_config['infer_data_types']:
-                dtype = None
+                dtype = None # let pandas figure out the data types
 
             df = pd.read_csv(StringIO(str_rows), dialect=self._dialect, dtype=dtype)
             table_schema = pd.io.json.build_table_schema(df, index=False)
