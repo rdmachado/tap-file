@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from singer_sdk import Tap, Stream
-from singer_sdk import typing as th  # JSON schema typing helpers
+from singer_sdk import typing as th
 
-# TODO: Import your custom stream types here:
 from tap_file.client import CSVStream
 
 

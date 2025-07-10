@@ -137,7 +137,7 @@ class CSVStream(Stream):
                 match self.provider_config['name']:
                     case 'azureblobstorage':
                         cc = ContainerClient.from_connection_string(self.provider_config['azureblobstorage_connection_string'], pr.netloc)
-                        matching_filenames = [f for f in cc.list_blob_names(name_starts_with=pr.path) if exp.fullmatch(f)]
+                        matching_filenames = [f for f in cc.list_blob_names(name_starts_with=pr.path[1:]) if exp.fullmatch(f)]
                         for f in matching_filenames:
                             files.append(File(os.path.join(self.file_config['url'], f), encoding=self.file_config['encoding'], transport_params=self.transport_params, offline=self.file_config['offline']))
                     case 'https':
