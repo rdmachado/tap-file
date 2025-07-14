@@ -149,6 +149,10 @@ class CSVStream(Stream):
     @property
     def schema(self):
 
+        if not self.files:
+            return th.PropertiesList(th.Property('__unknown_schema__', th.StringType())).to_dict()
+
+
         if not self._schema:
 
             properties: list[th.Property] = []
